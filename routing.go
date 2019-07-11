@@ -619,6 +619,7 @@ func (dht *IpfsDHT) FindPeer(ctx context.Context, id peer.ID) (_ peer.AddrInfo, 
 		// see if we got the peer here
 		for _, npi := range clpeerInfos {
 			if npi.ID == id {
+				logger.EventBegin(ctx, "PeerIsConnected", id)
 				return &dhtQueryResult{
 					peer:    npi,
 					success: true,

@@ -402,7 +402,7 @@ func (dht *IpfsDHT) FindLocal(id peer.ID) peer.AddrInfo {
 
 // findPeerSingle asks peer 'p' if they know where the peer with id 'id' is
 func (dht *IpfsDHT) findPeerSingle(ctx context.Context, p peer.ID, id peer.ID) (*pb.Message, error) {
-	eip := logger.EventBegin(ctx, "findPeerSingle",
+	eip := logger.EventBegin(ctx, "findPeerSingle!",
 		logging.LoggableMap{
 			"peer":   p,
 			"target": id,

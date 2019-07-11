@@ -121,7 +121,6 @@ func (r *dhtQueryRunner) TraceValue() *tracefmt.QueryRunnerState {
 	qrs.Query.Key = r.query.key
 	qrs.PeersSeen = r.peersSeen.Peers()
 	qrs.PeersQueried = r.peersQueried.Peers()
-	// qrs.PeersDialed = r.peersDialed // todo
 	// qrs.PeersToQuery = r.peersToQuery.Peers() // todo
 	qrs.PeersToQueryLen = r.peersToQuery.Queue.Len()
 	// qrs.PeersRemaining = r.peersRemaining // todo
@@ -131,8 +130,8 @@ func (r *dhtQueryRunner) TraceValue() *tracefmt.QueryRunnerState {
 			Success:     r.result.success,
 			FoundPeer:   r.result.peer.ID,
 			CloserPeers: PeerIDsFromPeerAddrs(r.result.closerPeers),
-			FinalSet:    r.result.finalSet.Peers(),
-			QueriedSet:  r.result.queriedSet.Peers(),
+			// FinalSet:    r.result.finalSet.Peers() //todo,
+			// QueriedSet:  r.result.queriedSet.Peers(),
 		}
 	}
 
@@ -180,7 +179,13 @@ func (r *dhtQueryRunner) Run(ctx context.Context, peers []peer.ID) (*dhtQueryRes
 	r.startTime = time.Now()
 	r.Unlock()
 
-	defer logger.EventBegin(ctx, "dhtQueryRunner.Run", r).Done()
+	logger.EventBegin(ctx, "dhtQueryRunnerStart", logging.LoggableMap{
+		"started": time.Now(),
+		"query": r.query.key,
+	}).Done()
+
+	eip := logger.EventBegin(ctx, "dhtQueryRunner")
+	defer eip.Done()
 
 	r.log = logger
 	r.runCtx = ctx
@@ -233,9 +238,12 @@ func (r *dhtQueryRunner) Run(ctx context.Context, peers []peer.ID) (*dhtQueryRes
 	r.RLock()
 	defer r.RUnlock()
 
+	eip.Append(r)
+
 	if r.result != nil && r.result.success {
 		return r.result, nil
 	}
+
 
 	return &dhtQueryResult{
 		finalSet:   r.peersSeen,
@@ -299,6 +307,13 @@ func (r *dhtQueryRunner) spawnWorkers(proc process.Process) {
 
 func (r *dhtQueryRunner) dialPeer(ctx context.Context, p peer.ID) error {
 	// short-circuit if we're already connected.
+	eip := logger.EventBegin(ctx, "dialPeer!",
+	logging.LoggableMap{
+		"peer":   p,
+		"started": time.Now(),
+		"query": r.query.key,
+	})
+	defer eip.Done()
 	if r.query.dht.host.Network().Connectedness(p) == network.Connected {
 		return nil
 	}
@@ -328,9 +343,11 @@ func (r *dhtQueryRunner) dialPeer(ctx context.Context, p peer.ID) error {
 
 func (r *dhtQueryRunner) queryPeer(proc process.Process, p peer.ID) {
 	// ok let's do this!
-
+	
 	// create a context from our proc.
 	ctx := ctxproc.OnClosingContext(proc)
+
+	eip := logger.EventBegin(ctx, "queryPeer!")
 
 	// make sure we do this when we exit
 	defer func() {
@@ -358,10 +375,23 @@ func (r *dhtQueryRunner) queryPeer(proc process.Process, p peer.ID) {
 		}
 		go r.proc.Close() // signal to everyone that we're done.
 		// must be async, as we're one of the children, and Close blocks.
-
+		eip.Append(logging.LoggableMap{
+			"peer":   p,
+			"success": res.success,
+			"query": r.query.key,
+		})
+		defer eip.Done()
 	} else if filtered := filterCandidatesPtr(conn, res.closerPeers); len(filtered) > 0 {
 		logger.Debugf("PEERS CLOSER -- worker for: %v (%d closer filtered peers; unfiltered: %d)", p,
 			len(filtered), len(res.closerPeers))
+			eip.Append(logging.LoggableMap{
+				"peer":   p,
+				"success": res.success,
+				"closerPeers": len(res.closerPeers),
+				"filteredPeers": len(filtered),
+				"query": r.query.key,
+			})
+			defer eip.Done()
 		for _, next := range filtered {
 			if next.ID == r.query.dht.self { // don't add self.
 				logger.Debugf("PEERS CLOSER -- worker for: %v found self", p)
@@ -376,4 +406,5 @@ func (r *dhtQueryRunner) queryPeer(proc process.Process, p peer.ID) {
 	} else {
 		logger.Debugf("QUERY worker for: %v - not found, and no closer (filtered) peers.", p)
 	}
+	
 }
