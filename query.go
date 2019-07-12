@@ -20,6 +20,7 @@ import (
 	tracefmt "github.com/libp2p/go-libp2p-kad-dht/tracefmt"
 	queue "github.com/libp2p/go-libp2p-peerstore/queue"
 	notif "github.com/libp2p/go-libp2p-routing/notifications"
+	// ks "github.com/whyrusleeping/go-keyspace"
 )
 
 // ErrNoPeersQueried is returned when we failed to connect to any peers.
@@ -123,8 +124,8 @@ func (r *dhtQueryRunner) TraceValue() *tracefmt.QueryRunnerState {
 	qrs.PeersQueried = r.peersQueried.Peers()
 	// qrs.PeersToQuery = r.peersToQuery.Peers() // todo
 	qrs.PeersToQueryLen = r.peersToQuery.Queue.Len()
-	// qrs.PeersRemaining = r.peersRemaining // todo
-
+	// qrs.PeersRemaining =  r.peersRemaining// todo
+	
 	if r.result != nil {
 		qrs.Result = tracefmt.QueryResult{
 			Success:     r.result.success,
@@ -307,14 +308,15 @@ func (r *dhtQueryRunner) spawnWorkers(proc process.Process) {
 
 func (r *dhtQueryRunner) dialPeer(ctx context.Context, p peer.ID) error {
 	// short-circuit if we're already connected.
-	eip := logger.EventBegin(ctx, "dialPeer!",
-	logging.LoggableMap{
-		"peer":   p,
-		"started": time.Now(),
-		"query": r.query.key,
-	})
+	eip := logger.EventBegin(ctx, "dialPeer!")
 	defer eip.Done()
 	if r.query.dht.host.Network().Connectedness(p) == network.Connected {
+		eip.Append(logging.LoggableMap{
+			"peer":   p,
+			"started": time.Now(),
+			"query": r.query.key,
+			"dialSuccess": "already connected",
+		})
 		return nil
 	}
 
@@ -335,10 +337,32 @@ func (r *dhtQueryRunner) dialPeer(ctx context.Context, p peer.ID) error {
 
 		// This peer is dropping out of the race.
 		r.peersRemaining.Decrement(1)
+		eip.Append(logging.LoggableMap{
+			"peer":   p,
+			"started": time.Now(),
+			"query": r.query.key,
+			"dialSuccess": "failure",
+		})
 		return err
 	}
+	eip.Append(logging.LoggableMap{
+		"peer":   p,
+		"started": time.Now(),
+		"query": r.query.key,
+		"dialSuccess": "success",
+	})
 	logger.Debugf("connected. dial success.")
 	return nil
+}
+
+func bits(bs []byte) []int {
+	r := make([]int, len(bs)*8)
+	for i, b := range bs {
+			for j := 0; j < 8; j++ {
+					r[i*8+j] = int(b >> uint(7-j) & 0x01)
+			}
+	}
+	return r
 }
 
 func (r *dhtQueryRunner) queryPeer(proc process.Process, p peer.ID) {
@@ -363,6 +387,19 @@ func (r *dhtQueryRunner) queryPeer(proc process.Process, p peer.ID) {
 
 	r.peersQueried.Add(p)
 
+	// todo-- just for logs, not the best place for this
+	// first getting distance that seems to be used for the peer queue, but seems to be a different xor representation then in the viz 
+	// from := ks.XORKeySpace.Key([]byte(string(r.query.key)))
+	// distance := ks.XORKeySpace.Key([]byte(p)).Distance(from)
+	keybytes := bits([]byte(string(r.query.key)))
+	pbytes := bits([]byte(p))
+	n := len(keybytes)
+	distance := 0
+	for i := 0; i < n; i++ {
+		distance += (keybytes[i]^pbytes[i])
+	}
+
+
 	if err != nil {
 		logger.Debugf("ERROR worker for: %v %v", p, err)
 	} else if res.success {
@@ -373,14 +410,15 @@ func (r *dhtQueryRunner) queryPeer(proc process.Process, p peer.ID) {
 		if res.peer != nil {
 			r.query.dht.peerstore.AddAddrs(res.peer.ID, res.peer.Addrs, pstore.TempAddrTTL)
 		}
-		go r.proc.Close() // signal to everyone that we're done.
-		// must be async, as we're one of the children, and Close blocks.
 		eip.Append(logging.LoggableMap{
 			"peer":   p,
 			"success": res.success,
 			"query": r.query.key,
+			"XOR": distance,
 		})
 		defer eip.Done()
+		go r.proc.Close() // signal to everyone that we're done.
+		// must be async, as we're one of the children, and Close blocks.
 	} else if filtered := filterCandidatesPtr(conn, res.closerPeers); len(filtered) > 0 {
 		logger.Debugf("PEERS CLOSER -- worker for: %v (%d closer filtered peers; unfiltered: %d)", p,
 			len(filtered), len(res.closerPeers))
@@ -389,7 +427,9 @@ func (r *dhtQueryRunner) queryPeer(proc process.Process, p peer.ID) {
 				"success": res.success,
 				"closerPeers": len(res.closerPeers),
 				"filteredPeers": len(filtered),
+				"filteredPeersArr": PeerIDsFromPeerAddrs(filtered),
 				"query": r.query.key,
+				"XOR": distance,
 			})
 			defer eip.Done()
 		for _, next := range filtered {

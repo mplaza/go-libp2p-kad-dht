@@ -28,6 +28,7 @@ require (
 	github.com/multiformats/go-multistream v0.1.0
 	github.com/stretchr/testify v1.3.0
 	github.com/whyrusleeping/base32 v0.0.0-20170828182744-c30ac30633cc
+	github.com/whyrusleeping/go-keyspace v0.0.0-20160322163242-5b898ac5add1
 	go.opencensus.io v0.21.0
 	golang.org/x/xerrors v0.0.0-20190513163551-3ee3066db522
 )
