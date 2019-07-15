@@ -122,6 +122,7 @@ func (r *dhtQueryRunner) TraceValue() *tracefmt.QueryRunnerState {
 	qrs.Query.Key = r.query.key
 	qrs.PeersSeen = r.peersSeen.Peers()
 	qrs.PeersQueried = r.peersQueried.Peers()
+	qrs.PeersDialedLen = r.peersDialed.out.Queue.Len()
 	// qrs.PeersToQuery = r.peersToQuery.Peers() // todo
 	qrs.PeersToQueryLen = r.peersToQuery.Queue.Len()
 	// qrs.PeersRemaining =  r.peersRemaining// todo

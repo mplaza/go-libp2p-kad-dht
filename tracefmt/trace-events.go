@@ -30,6 +30,7 @@ type QueryRunnerState struct {
   PeersSeen       []peer.ID
   PeersQueried    []peer.ID
   PeersDialed     []peer.ID
+  PeersDialedLen  int
   PeersToQuery    []peer.ID
   PeersToQueryLen int
   PeersRemaining  []peer.ID
